@@ -54,7 +54,7 @@ access, copies your SSH key to that user, creates a bare git repo at
 On your laptop:
 
 ```bash
-cd /Users/aq_home/1Projects/personal-assistant-test-cloud
+cd /Users/aq_home/1Projects/personal-assistant-cloud
 git remote add prod ssh://deploy@<server-ip>/home/deploy/hermes.git
 git push prod main
 ```

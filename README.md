@@ -1,4 +1,4 @@
-# personal-assistant-test-cloud
+# personal-assistant-cloud
 
 Hermes — a personal Matrix-based assistant that crawls housing listings,
 filters them by your constraints, and writes structured artifacts into an
