@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
+import yaml
 
 from app import db
 from app.skills._style import html_escape
@@ -30,42 +31,46 @@ from app.skills.report import Report
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Config (env-driven)
+# Paths
 # ---------------------------------------------------------------------------
 VAULT_ROOT = Path("/obsidian")
 PROJECT_DIR = VAULT_ROOT / "Projects" / "SF Apartment Search"
 LISTINGS_DIR = PROJECT_DIR / "listings"
 DASHBOARD_PATH = VAULT_ROOT / "_dashboards" / "sf-apartment-search.html"
 
-BUDGET_SOLO = int(os.environ.get("APARTMENT_BUDGET_SOLO", "3000"))
-BUDGET_SHARED = int(os.environ.get("APARTMENT_BUDGET_SHARED", "2500"))
+_CONFIG_PATH = Path(__file__).with_suffix(".yaml")
 
+# ---------------------------------------------------------------------------
+# Declarative config (apartment_search.yaml). Edit the YAML to tune the search;
+# this module reads but does not redefine the constraints.
+# ---------------------------------------------------------------------------
+_CFG = yaml.safe_load(_CONFIG_PATH.read_text())
+
+BUDGET_SOLO = int(os.environ.get("APARTMENT_BUDGET_SOLO", _CFG["budgets"]["solo"]))
+BUDGET_SHARED = int(os.environ.get("APARTMENT_BUDGET_SHARED", _CFG["budgets"]["shared"]))
+
+# canonical_name → lowercased aliases
 TARGET_NEIGHBORHOODS: dict[str, list[str]] = {
-    "Pacific Heights": ["pacific heights", "pac heights"],
-    "Nob Hill (north of California)": ["nob hill", "upper nob hill"],
-    "Russian Hill (south)": ["russian hill"],
+    name: [a.lower() for a in aliases]
+    for name, aliases in _CFG["target_neighborhoods"].items()
 }
-HARD_EXCLUDES = ["lower nob hill", "tenderloin", "soma", "bayview", "richmond district"]
+HARD_EXCLUDES: list[str] = [s.lower() for s in _CFG["hard_excludes"]]
 
-# Street-level filter. SF cross-street block numbers count up from Market.
-# Nob Hill (N of California, S of Pacific) → blocks 1000-1499 on these streets.
-# Russian Hill south (S of Lombard, N of Pacific) → 1500-2199.
-NS_TARGET_STREETS_NOB_RH = {
-    "taylor", "mason", "jones", "leavenworth", "hyde", "larkin", "polk",
-}
-# Pacific Heights: California ≈ block 2000+. N of California ≈ 2100-2899.
-NS_TARGET_STREETS_PAC = {
-    "fillmore", "steiner", "pierce", "scott", "divisadero",
-    "buchanan", "webster", "laguna", "octavia", "gough",
-    "franklin", "van ness",
-}
+# street_name (lowercased) → (block_min, block_max) inside target zone
+NS_STREET_BLOCK_RULES: dict[str, tuple[int, int]] = {}
+for _rule in _CFG["street_block_rules"].values():
+    _band = (int(_rule["target_block_min"]), int(_rule["target_block_max"]))
+    for _street in _rule["streets"]:
+        NS_STREET_BLOCK_RULES[_street.lower()] = _band
+
 _ADDRESS_RE = re.compile(r"\b(\d{3,4})\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b", re.IGNORECASE)
 
-SHARED_KEYWORDS = [
-    "room for rent", "private room", "roommate", "rooming", "shared apartment",
-    "looking for a roommate", "looking for roommate", "room available", "furnished room",
-]
-SOLO_KEYWORDS = ["studio", "1 bed", "1bed", "1br", "1 br", "junior 1", "1bd", "1 bd"]
+SHARED_KEYWORDS: list[str] = [s.lower() for s in _CFG["mode_keywords"]["shared"]]
+SOLO_KEYWORDS: list[str] = [s.lower() for s in _CFG["mode_keywords"]["solo"]]
+
+# Available to other modules / surfaced into report HTML for context
+SOFT_PREFERENCES: dict = _CFG.get("soft_preferences", {})
+TIMING: dict = _CFG.get("timing", {})
 
 USER_ROOM = os.environ.get("APARTMENT_UPDATE_ROOM") or os.environ.get("MATRIX_ADMIN_ROOM", "")
 
@@ -105,12 +110,9 @@ def _check_street_address(title: str, description: str) -> str | None:
         for suffix in (" street", " st", " avenue", " ave", " blvd", " boulevard"):
             if street.endswith(suffix):
                 street = street[: -len(suffix)].strip()
-        if street in NS_TARGET_STREETS_NOB_RH:
-            if not (1000 <= block <= 2199):
-                return f"address-out-of-zone:{block} {street}"
-        elif street in NS_TARGET_STREETS_PAC:
-            if not (2100 <= block <= 2899):
-                return f"address-out-of-zone:{block} {street}"
+        band = NS_STREET_BLOCK_RULES.get(street)
+        if band and not (band[0] <= block <= band[1]):
+            return f"address-out-of-zone:{block} {street}"
     return None
 
 

@@ -1,0 +1,140 @@
+# SF Apartment Search — declarative constraints for the daily job.
+#
+# Edit this file to tune the search; the Python code does not need to change.
+# All matching against listing titles + descriptions is case-insensitive.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Budgets (USD/month, hard caps).
+# Can be overridden at runtime by APARTMENT_BUDGET_SOLO / _SHARED env vars.
+# ─────────────────────────────────────────────────────────────────────────────
+budgets:
+  solo: 3000        # max total rent for solo living
+  shared: 2500      # max user's share when living with roommates
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Target neighborhoods.
+#   canonical_name → match aliases (substring match against title/description)
+# ─────────────────────────────────────────────────────────────────────────────
+target_neighborhoods:
+  Pacific Heights:
+    - pacific heights
+    - pac heights
+  Nob Hill (north of California):
+    - nob hill
+    - upper nob hill
+  Russian Hill (south):
+    - russian hill
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hard excludes.
+# If any of these substrings appears, reject the listing — even if a target
+# neighborhood keyword matched (e.g. "lower nob hill" is south of California,
+# outside the target zone).
+# ─────────────────────────────────────────────────────────────────────────────
+hard_excludes:
+  - lower nob hill
+  - tenderloin
+  - soma
+  - bayview
+  - richmond district
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Street-level filter.
+#
+# SF cross-street block numbers count up from Market. A listing may have
+# "701 Taylor" in the title — block 701 on Taylor is south of California
+# (Tenderloin), outside the target zone.
+#
+# Each rule lists the cross streets it applies to and the target block band.
+# ─────────────────────────────────────────────────────────────────────────────
+street_block_rules:
+  nob_hill_and_south_russian_hill:
+    # Nob Hill (N of California, S of Pacific) ≈ blocks 1000–1499
+    # Russian Hill south (S of Lombard, N of Pacific)  ≈ blocks 1500–2199
+    streets: [taylor, mason, jones, leavenworth, hyde, larkin, polk]
+    target_block_min: 1000
+    target_block_max: 2199
+
+  pacific_heights:
+    # California ≈ block 2000 on these streets; Pac Heights extends to ~2899
+    streets:
+      - fillmore
+      - steiner
+      - pierce
+      - scott
+      - divisadero
+      - buchanan
+      - webster
+      - laguna
+      - octavia
+      - gough
+      - franklin
+      - van ness
+    target_block_min: 2100
+    target_block_max: 2899
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mode detection — which of (solo, shared, both, unknown) does the listing fit?
+# A listing matching any "shared" keyword and no "solo" keyword → shared, etc.
+# ─────────────────────────────────────────────────────────────────────────────
+mode_keywords:
+  shared:
+    - room for rent
+    - private room
+    - roommate
+    - rooming
+    - shared apartment
+    - looking for a roommate
+    - looking for roommate
+    - room available
+    - furnished room
+  solo:
+    - studio
+    - 1 bed
+    - 1bed
+    - 1br
+    - 1 br
+    - junior 1
+    - 1bd
+    - 1 bd
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Soft preferences. NOT enforced by the filter; referenced by the LLM agent
+# when discussing listings, and surfaced in report copy for context.
+# ─────────────────────────────────────────────────────────────────────────────
+soft_preferences:
+  positive_signals:
+    - natural light; south or west facing; big windows
+    - airflow
+    - elevator
+    - dishwasher
+    - garbage disposal
+    - in-unit laundry (best); building laundry acceptable
+    - parking — highly preferred but not required
+    - "shared track only: social / friendly household vibe (cooking together, hosting)"
+  hard_no:
+    - basement / garden / below-grade units
+    - no windows in main living or sleeping area
+    - 6th-floor-or-higher walk-up (no elevator)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timing (informational; agent uses for context in conversation and reports)
+# ─────────────────────────────────────────────────────────────────────────────
+timing:
+  solo:
+    earliest_move_in: "2026-07-01"
+    lease_term: "12 months (firm)"
+  shared:
+    earliest_move_in: "2026-06-28"
+    lease_term: "month-to-month or indefinite preferred"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Roommate path (for shared track)
+# ─────────────────────────────────────────────────────────────────────────────
+roommate_path: joining-existing  # vs "assembling-group"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Application readiness — surfaced in reports so the user remembers they can
+# move fast on a strong match.
+# ─────────────────────────────────────────────────────────────────────────────
+application_readiness: ready  # good credit, income docs + references on hand
