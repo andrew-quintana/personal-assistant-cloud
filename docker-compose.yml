@@ -111,6 +111,12 @@ services:
     container_name: hermes-crawler
     restart: unless-stopped
     shm_size: "1gb"
+    ports:
+      # Loopback only — reachable by the host's watchdog + scripts but NOT
+      # externally. From the tailnet, use https://<host>.<tailnet>.ts.net
+      # which proxies through Caddy → Conduit/Element. The agent's HTTP
+      # endpoints (8000) aren't currently surfaced via Caddy.
+      - "127.0.0.1:8000:8000"
     volumes:
       - crawler-data:/data
       - obsidian-vault:/obsidian
