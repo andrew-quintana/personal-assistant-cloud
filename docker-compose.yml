@@ -107,3 +107,15 @@ volumes:
   crawler-data:
   obsidian-vault:    # Agent writes here. Sync to your devices via Obsidian Sync
                      # (run an Obsidian container against this volume) or Syncthing.
+
+networks:
+  # Enable IPv6 on the Compose network so Tailscale + crawler can reach the
+  # IPv6 internet on an IPv6-only host. The daemon-level `ipv6: true` only
+  # applies to the default bridge; Compose creates a user-defined bridge that
+  # needs this flag explicitly. Docker masquerades outbound IPv6 via
+  # `ip6tables: true` in /etc/docker/daemon.json.
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "fd5f:7e75:653f::/64"
