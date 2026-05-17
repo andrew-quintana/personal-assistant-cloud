@@ -1,0 +1,109 @@
+# Cloud deploy: hermes-agent on a Tailscale-fronted VPS (e.g. Hetzner CX22).
+#
+# Stack:
+#   tailscale  — joins your tailnet so all access is over Tailscale (no public ports)
+#   caddy      — TLS reverse proxy bound to the tailscale netns; uses Tailscale-issued certs
+#   conduit    — Matrix homeserver
+#   element    — web client
+#   crawler    — hermes-agent (Matrix bot + Playwright crawler + apartment_search job)
+#
+# Before first deploy:
+#   1. Generate a Tailscale auth key:
+#        https://login.tailscale.com/admin/settings/keys
+#        Recommended: Reusable=No, Ephemeral=No, Tags=tag:hermes
+#   2. Copy .env.example -> .env and fill in TS_AUTHKEY, MATRIX_BOT_PASSWORD, etc.
+#   3. Update config/Caddyfile if your tailnet name or hostname differs from
+#      hermes-cloud.<tailnet>.ts.net (see comments inside that file).
+#   4. docker compose up --build -d
+#   5. Visit https://hermes-cloud.<your-tailnet>.ts.net (via Tailscale on any device)
+#
+# No ports are exposed to the public internet. All access goes through Tailscale.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: hermes-tailscale
+    hostname: ${TS_HOSTNAME:-hermes-cloud}
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ts-certs:/certs
+      - ./scripts/docker-renew-cert.sh:/usr/local/bin/renew-cert.sh:ro
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_HOSTNAME=${TS_HOSTNAME:-hermes-cloud}
+      - TS_TAILNET=${TS_TAILNET}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_EXTRA_ARGS=--accept-routes
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /usr/local/bin/containerboot &
+        echo "Waiting for Tailscale to come up..."
+        for i in $(seq 1 30); do
+          if tailscale status >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+        /usr/local/bin/renew-cert.sh
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: hermes-caddy
+    restart: unless-stopped
+    network_mode: service:tailscale
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ts-certs:/etc/caddy/certs:ro
+    environment:
+      - TAILSCALE_DOMAIN=${TS_HOSTNAME:-hermes-cloud}.${TS_TAILNET}
+    depends_on:
+      - tailscale
+      - conduit
+      - element
+
+  conduit:
+    image: matrixconduit/matrix-conduit:latest
+    container_name: hermes-conduit
+    restart: unless-stopped
+    volumes:
+      - conduit-data:/data
+      - ./config/conduit.toml:/etc/conduit/conduit.toml:ro
+    environment:
+      CONDUIT_CONFIG: /etc/conduit/conduit.toml
+
+  element:
+    image: vectorim/element-web:latest
+    container_name: hermes-element
+    restart: unless-stopped
+    depends_on:
+      - conduit
+
+  crawler:
+    build: .
+    container_name: hermes-crawler
+    restart: unless-stopped
+    shm_size: "1gb"
+    volumes:
+      - crawler-data:/data
+      - obsidian-vault:/obsidian
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/data/hermes.db
+      - MATRIX_HOMESERVER=http://conduit:6167
+      - APARTMENT_BUDGET_SOLO=${APARTMENT_BUDGET_SOLO:-3000}
+      - APARTMENT_BUDGET_SHARED=${APARTMENT_BUDGET_SHARED:-2500}
+      - APARTMENT_DAILY_CRON_HOUR=${APARTMENT_DAILY_CRON_HOUR:-8}
+    depends_on:
+      - conduit
+
+volumes:
+  conduit-data:
+  tailscale-state:
+  ts-certs:
+  crawler-data:
+  obsidian-vault:    # Agent writes here. Sync to your devices via Obsidian Sync
+                     # (run an Obsidian container against this volume) or Syncthing.

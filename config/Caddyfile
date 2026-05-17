@@ -1,0 +1,32 @@
+# Caddy config for the Tailscale-fronted hermes stack.
+#
+# Reads TAILSCALE_DOMAIN at parse time — set it in .env to
+# "<TS_HOSTNAME>.<TS_TAILNET>" (e.g. hermes-cloud.example.ts.net).
+# docker-compose.yml passes this env into the caddy container.
+#
+# No tailnet identifiers are hardcoded here.
+
+{
+    auto_https off
+}
+
+:443 {
+    tls /etc/caddy/certs/{$TAILSCALE_DOMAIN}.crt /etc/caddy/certs/{$TAILSCALE_DOMAIN}.key
+
+    # Well-known discovery for Matrix clients
+    handle /.well-known/matrix/* {
+        header Content-Type "application/json"
+        respond /.well-known/matrix/client `{"m.homeserver":{"base_url":"https://{$TAILSCALE_DOMAIN}"}}` 200
+        respond /.well-known/matrix/server `{"m.server":"{$TAILSCALE_DOMAIN}:443"}` 200
+    }
+
+    # Matrix client API → Conduit
+    handle /_matrix/* {
+        reverse_proxy conduit:6167
+    }
+
+    # Everything else → Element web UI
+    handle {
+        reverse_proxy element:80
+    }
+}

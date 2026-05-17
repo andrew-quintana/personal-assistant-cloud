@@ -1,0 +1,28 @@
+# Secrets / local state
+.env
+.env.local
+.env.*.local
+
+# Local data
+data/
+logs/
+*.db
+*.db-journal
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
