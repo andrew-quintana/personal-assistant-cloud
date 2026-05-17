@@ -1,0 +1,11 @@
+{
+    "default_server_config": {
+        "m.homeserver": {
+            "base_url": "https://hermes-cloud.tailbbe41b.ts.net",
+            "server_name": "hermes.local"
+        }
+    },
+    "brand": "Hermes",
+    "disable_guests": true,
+    "disable_3pid_login": true
+}

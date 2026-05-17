@@ -97,6 +97,8 @@ services:
     image: vectorim/element-web:latest
     container_name: hermes-element
     restart: unless-stopped
+    volumes:
+      - ./config/element-config.json:/app/config.json:ro
     depends_on:
       - conduit
     healthcheck:
