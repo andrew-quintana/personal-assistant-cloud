@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
     import app.tools.files
     import app.tools.rooms
     import app.tools.cookies
+    import app.tools.web_search
     from app.tools import registry
 
     log.info(f"Registered {len(registry._tools)} tools")
