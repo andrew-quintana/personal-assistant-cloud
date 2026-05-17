@@ -112,6 +112,31 @@ git push prod main
 The post-receive hook rebuilds + restarts. Logs visible via
 `ssh deploy@<server-ip> 'cd ~/hermes && docker compose logs -f crawler'`.
 
+## Install the host watchdog (one-time)
+
+After the first successful deploy, install the cron-based watchdog. It pings
+`/health` every 5 min and restarts the crawler if unresponsive.
+
+```bash
+ssh deploy@<server-ip> 'cd ~/hermes && ./scripts/install-watchdog.sh'
+```
+
+Logs to `/var/log/hermes-watchdog.log`. This is L3 in the resilience model
+(see README), behind `autoheal` (L2) which auto-restarts unhealthy containers.
+
+## When something breaks
+
+Recovery scripts in `scripts/`:
+
+| Command | What |
+|---|---|
+| `./scripts/health.sh` | Snapshot of every container + agent /health + tailscale status |
+| `./scripts/repair.sh` | Diagnostic walk-through; flags issues + suggests fixes |
+| `./scripts/restart.sh [svc]` | Restart one service or everything |
+| `./scripts/logs.sh <svc> [n]` | Tail logs |
+
+Run any over SSH: `ssh deploy@<host> 'cd ~/hermes && ./scripts/health.sh'`.
+
 ## Tighten access further (recommended)
 
 Once Tailscale is up and you can `tailscale ssh deploy@hermes-cloud`,

@@ -26,7 +26,13 @@ config/
 └── conduit.toml       Matrix homeserver config
 
 scripts/
-└── docker-renew-cert.sh   Auto-renews Tailscale TLS cert weekly
+├── health.sh             Stack status snapshot
+├── restart.sh [svc]      Restart one service or the whole stack
+├── logs.sh <svc> [n]     Tail logs
+├── repair.sh             Diagnose + auto-fix common failure modes
+├── watchdog.sh           Host cron — pings /health, restarts crawler on failure
+├── install-watchdog.sh   One-time: installs the watchdog cron entry
+└── docker-renew-cert.sh  Auto-renews Tailscale TLS cert weekly
 
 deploy/
 ├── setup-server.sh    One-time bootstrap: Docker, deploy user, bare git, ufw
@@ -122,6 +128,30 @@ The `app/skills/` modules are reusable renderers:
 
 Jobs compose these. Add new jobs under `app/jobs/` following
 `apartment_search.py` as a template.
+
+## Failure recovery
+
+Defense-in-depth so the stack stays reachable without manual setup retries.
+
+| Layer | What | Recovers from |
+|---|---|---|
+| **L0** `restart: unless-stopped` | Docker policy on every service | container crashes, server reboots |
+| **L1** healthchecks | Per-service liveness probes in `docker-compose.yml` | unresponsive (but not crashed) containers |
+| **L2** `autoheal` sidecar | `willfarrell/autoheal` watches health status, restarts unhealthy containers | hangs, deadlocks |
+| **L3** host cron watchdog | `scripts/watchdog.sh` runs every 5 min, restarts crawler if `/health` fails | full-app hangs that escape autoheal |
+| **L5** scripts package | `scripts/{health,restart,repair,logs}.sh` for SSH-time use | when SSH is your only path |
+
+**Conduit** has no healthcheck (its image is distroless — no shell tools). Relies on `restart: unless-stopped` for crash recovery; hangs are detected indirectly when caddy/crawler fail.
+
+**To install the host watchdog** (one-time, after first deploy):
+
+```bash
+ssh deploy@<host> 'cd ~/hermes && ./scripts/install-watchdog.sh'
+```
+
+**Out-of-band reach** if everything in-stack breaks:
+- `tailscale ssh deploy@hermes-cloud` — works as long as Tailscale is up
+- Hetzner Cloud Console — rescue/KVM access if Tailscale is dead
 
 ## Cost / security
 

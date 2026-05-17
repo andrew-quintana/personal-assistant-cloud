@@ -48,6 +48,12 @@ services:
           sleep 2
         done
         /usr/local/bin/renew-cert.sh
+    healthcheck:
+      test: ["CMD-SHELL", "tailscale status >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   caddy:
     image: caddy:2-alpine
@@ -60,9 +66,19 @@ services:
     environment:
       - TAILSCALE_DOMAIN=${TS_HOSTNAME:-hermes-cloud}.${TS_TAILNET}
     depends_on:
-      - tailscale
-      - conduit
-      - element
+      tailscale:
+        condition: service_healthy
+      conduit:
+        condition: service_started
+      element:
+        condition: service_started
+    healthcheck:
+      # Caddy admin API on localhost:2019 in its own netns
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:2019/config/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   conduit:
     image: matrixconduit/matrix-conduit:latest
@@ -73,6 +89,9 @@ services:
       - ./config/conduit.toml:/etc/conduit/conduit.toml:ro
     environment:
       CONDUIT_CONFIG: /etc/conduit/conduit.toml
+    # No healthcheck: image is distroless (no shell tools). Relies on
+    # restart:unless-stopped to recover from crashes. Hangs would need to be
+    # detected indirectly via caddy/crawler failures.
 
   element:
     image: vectorim/element-web:latest
@@ -80,6 +99,12 @@ services:
     restart: unless-stopped
     depends_on:
       - conduit
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   crawler:
     build: .
@@ -99,6 +124,26 @@ services:
       - APARTMENT_DAILY_CRON_HOUR=${APARTMENT_DAILY_CRON_HOUR:-8}
     depends_on:
       - conduit
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -m 5 http://localhost:8000/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 90s   # Playwright/Chromium startup takes longest
+
+  autoheal:
+    # Watches all containers with a healthcheck and restarts any marked
+    # unhealthy. Tiny image whose only function is to call `docker restart`.
+    image: willfarrell/autoheal:latest
+    container_name: hermes-autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+      - AUTOHEAL_INTERVAL=15
+      - AUTOHEAL_START_PERIOD=30
+      - DOCKER_SOCK=/var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   conduit-data:
