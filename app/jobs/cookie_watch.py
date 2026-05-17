@@ -45,6 +45,10 @@ async def run(browser=None, matrix_client=None) -> dict:
         if browser is not None:
             try:
                 validated = await cookie_skill.validate(s.site, browser)
+                # propagate so callers see the truth in to_dict()
+                s.valid = validated.valid
+                s.reason = validated.reason
+                s.last_valid_check = validated.last_valid_check
                 if validated.valid is False:
                     issues.append(f"❌ {s.site}: invalid ({validated.reason})")
             except Exception as e:

@@ -32,12 +32,15 @@ log = logging.getLogger(__name__)
 COOKIES_DIR = Path(os.environ.get("COOKIES_DIR", "/data/cookies"))
 
 # Per-site config. Add entries as new crawlers grow.
-SITE_CONFIG: dict[str, dict[str, str]] = {
+SITE_CONFIG: dict[str, Any] = {
     "facebook": {
         "filename": "fb_cookies.json",
         "login_url": "https://www.facebook.com/login",
-        "check_url": "https://www.facebook.com/",
-        "logged_in_signal": "facebook.com/messages",  # link only shown when logged in
+        # Probe /me — when logged in this resolves to the user's profile; when
+        # logged out it redirects to /login. We URL-check rather than scrape
+        # the HTML because Facebook's homepage is client-rendered.
+        "check_url": "https://m.facebook.com/me",
+        "bad_url_patterns": ["/login", "/checkpoint", "/recover", "/help"],
     },
     # Future sites go here, e.g.:
     # "gmail": {...},
@@ -183,7 +186,8 @@ def import_cookies(site: str, raw_text: str) -> dict:
 # Validate — open the saved session in Playwright and probe.
 # ---------------------------------------------------------------------------
 async def validate(site: str, browser) -> CookieStatus:
-    """Visit the site's check_url and look for a logged-in signal.
+    """Open the saved session in Playwright, hit the site's check_url, and
+    see whether the final URL looks like the auth flow kicked in.
 
     `browser` must be a Playwright Browser instance (already launched).
     """
@@ -194,23 +198,25 @@ async def validate(site: str, browser) -> CookieStatus:
         return status
 
     cfg = SITE_CONFIG[site]
+    final_url = ""
     try:
         context = await browser.new_context(storage_state=str(status.path))
         page = await context.new_page()
-        await page.goto(cfg["check_url"], wait_until="domcontentloaded", timeout=20000)
-        html = await page.content()
+        await page.goto(cfg["check_url"], wait_until="networkidle", timeout=30000)
+        final_url = page.url
         await context.close()
     except Exception as e:
         status.valid = False
         status.reason = f"probe error: {e!s}"
         return status
 
-    if cfg["logged_in_signal"] in html:
-        status.valid = True
-        status.reason = "logged-in signal found"
-    else:
+    bad = [p for p in cfg.get("bad_url_patterns", []) if p in final_url]
+    if bad:
         status.valid = False
-        status.reason = f"logged-in signal '{cfg['logged_in_signal']}' not found"
+        status.reason = f"landed at {final_url} (matches {bad[0]} — not logged in)"
+    else:
+        status.valid = True
+        status.reason = f"loaded {final_url} without auth redirect"
     status.last_valid_check = time.time()
     return status
 
