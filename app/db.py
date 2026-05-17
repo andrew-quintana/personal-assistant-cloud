@@ -39,6 +39,19 @@ CREATE TABLE IF NOT EXISTS seen_urls (
     url TEXT PRIMARY KEY,
     first_seen TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    action TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,            -- 'success' | 'failed' | 'running'
+    duration_ms INTEGER,
+    error TEXT,
+    output_summary TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_runs_title_started ON scheduled_runs (title, started_at DESC);
 """
 
 

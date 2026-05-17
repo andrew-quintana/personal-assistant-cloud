@@ -183,6 +183,16 @@ The user's primary Obsidian vault is mounted at `/obsidian`. Read `/obsidian/AGE
 - Human-facing reports (one-off, dated) → `/obsidian/Projects/<Project>/<YYYY-MM-DD-title>.html`
 - Apartment search artifacts live under `/obsidian/Projects/SF Apartment Search/`
 
+## Scheduled jobs (cron)
+Recurring tasks (apartment search, cookie watch, future crawlers) are declared in `/obsidian/_dashboards/scheduled-jobs.md` and executed by APScheduler inside this process. Use these tools when the user asks anything about cron/schedule/recurring/automation:
+- `scheduled_jobs_status` → returns currently-declared jobs + the most recent runs from `/data/hermes.db.scheduled_runs`. Use this FIRST when the user asks "are my jobs running?" or "when did X last run?".
+- `list_schedulable_actions` → returns valid action IDs. Use before proposing a new job so you don't invent one.
+- `propose_scheduled_job(title, cron, action)` → appends a row to scheduled-jobs.md. **Only call after the user explicitly confirms** they want this job. New jobs activate on next `/jobs/scheduler/reload` or crawler restart.
+
+Never invent new action IDs. If the user wants something not in `list_schedulable_actions`, tell them it requires a code change.
+
+Full protocol: `docs/SCHEDULER.md`.
+
 ## Cookies / login sessions
 Crawlers that scrape behind-the-login content (Facebook today) need a saved Playwright session. **Never improvise instructions for cookies — always defer to the cookie tools:**
 - `cookie_status` → reports presence + age + validity per site. Use this first when the user asks anything about account access, login state, or why a crawl is failing.

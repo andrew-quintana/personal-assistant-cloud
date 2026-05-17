@@ -12,6 +12,10 @@ from app import db
 from app.crawlers.craigslist import CraigslistCrawler
 from app.jobs.apartment_search import run_daily_update as run_apartment_update
 from app.jobs.cookie_watch import run as run_cookie_watch
+from app.jobs.scheduler_loader import (
+    SchedulerContext,
+    load_and_schedule,
+)
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -50,6 +54,7 @@ async def lifespan(app: FastAPI):
     import app.tools.rooms
     import app.tools.cookies
     import app.tools.web_search
+    import app.tools.schedules
     from app.tools import registry
 
     log.info(f"Registered {len(registry._tools)} tools")
@@ -71,32 +76,16 @@ async def lifespan(app: FastAPI):
     await asyncio.sleep(3)
     agent.matrix_client = bot.client
 
-    # Scheduler — daily apartment-search update
+    # Scheduler — jobs declared in /obsidian/_dashboards/scheduled-jobs.md
     global scheduler
     scheduler = AsyncIOScheduler(timezone="UTC")
-    cron_hour = int(os.environ.get("APARTMENT_DAILY_CRON_HOUR", "8"))
-    scheduler.add_job(
-        run_apartment_update,
-        trigger=CronTrigger(hour=cron_hour, minute=0),
-        kwargs={"matrix_client": bot.client},
-        id="apartment_daily_update",
-        replace_existing=True,
-        misfire_grace_time=3600,
-    )
-    # Cookie health check — every 12h. Probes Playwright sessions and pings
-    # the user via Matrix if any site's cookies are missing/expired.
-    scheduler.add_job(
-        run_cookie_watch,
-        trigger=CronTrigger(hour="0,12", minute=15),
-        kwargs={"browser": browser, "matrix_client": bot.client},
-        id="cookie_watch",
-        replace_existing=True,
-        misfire_grace_time=3600,
-    )
+    sched_ctx = SchedulerContext(browser=browser, matrix_client=bot.client)
+    scheduled = load_and_schedule(scheduler, sched_ctx)
     scheduler.start()
     log.info(
-        f"Scheduler started — apartment_daily_update at {cron_hour:02d}:00 UTC, "
-        "cookie_watch at 00:15/12:15 UTC"
+        "Scheduler started — %d job(s) loaded from scheduled-jobs.md: %s",
+        len(scheduled),
+        ", ".join(r.title for r in scheduled) or "(none)",
     )
 
     yield
@@ -137,6 +126,48 @@ async def trigger_cookie_watch():
     matrix_client = bot.client if bot else None
     result = await run_cookie_watch(browser=browser, matrix_client=matrix_client)
     return {"status": "ok", "result": result}
+
+
+@app.post("/jobs/scheduler/reload")
+async def reload_scheduler():
+    """Re-read scheduled-jobs.md and update the APScheduler entries.
+
+    Useful after the bot or user edits the markdown — no full restart needed.
+    """
+    if not scheduler:
+        return {"status": "error", "reason": "scheduler not initialised"}
+    ctx = SchedulerContext(
+        browser=browser,
+        matrix_client=bot.client if bot else None,
+    )
+    rows = load_and_schedule(scheduler, ctx)
+    return {
+        "status": "ok",
+        "scheduled": [{"title": r.title, "cron": r.cron, "action": r.action} for r in rows],
+    }
+
+
+@app.get("/jobs/scheduler/status")
+async def scheduler_status():
+    """Snapshot of current jobs + their most recent run from the DB."""
+    import aiosqlite
+    if not scheduler:
+        return {"status": "error", "reason": "scheduler not initialised"}
+    jobs = [
+        {"id": j.id, "next_run_time": str(j.next_run_time)}
+        for j in scheduler.get_jobs()
+        if j.id.startswith("scheduled:")
+    ]
+    recent = []
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        async with conn.execute(
+            "SELECT title, action, started_at, finished_at, status, duration_ms "
+            "FROM scheduled_runs ORDER BY started_at DESC LIMIT 20"
+        ) as cur:
+            for r in await cur.fetchall():
+                recent.append({k: r[k] for k in r.keys()})
+    return {"status": "ok", "jobs": jobs, "recent_runs": recent}
 
 
 @app.get("/rooms")
