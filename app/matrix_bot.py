@@ -32,12 +32,18 @@ class HermesBot:
 
         log.info(f"Logged in as {resp.user_id}")
 
-        # Initial sync to skip old messages BEFORE registering callbacks
+        # Register the invite callback BEFORE initial sync, so any pending
+        # invites (delivered as part of initial sync state) get auto-joined.
+        self.client.add_event_callback(self._on_invite, InviteMemberEvent)
+
+        # Initial sync — picks up pending invites; old messages flow past
+        # without triggering callbacks because the message callback isn't
+        # registered yet.
         await self.client.sync(timeout=5000)
         log.info("Initial sync done, now listening for new messages")
 
+        # Now register message callback so only NEW messages trigger us.
         self.client.add_event_callback(self._on_message, RoomMessageText)
-        self.client.add_event_callback(self._on_invite, InviteMemberEvent)
 
         self._running = True
         while self._running:
