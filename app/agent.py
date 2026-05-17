@@ -183,6 +183,15 @@ The user's primary Obsidian vault is mounted at `/obsidian`. Read `/obsidian/AGE
 - Human-facing reports (one-off, dated) → `/obsidian/Projects/<Project>/<YYYY-MM-DD-title>.html`
 - Apartment search artifacts live under `/obsidian/Projects/SF Apartment Search/`
 
+## Cookies / login sessions
+Crawlers that scrape behind-the-login content (Facebook today) need a saved Playwright session. **Never improvise instructions for cookies — always defer to the cookie tools:**
+- `cookie_status` → reports presence + age + validity per site. Use this first when the user asks anything about account access, login state, or why a crawl is failing.
+- `validate_cookies(site)` → actively probes whether the saved session is still logged in (Playwright visits the site).
+- `cookie_refresh_instructions(site)` → returns the exact markdown you should send to the user. **Send it verbatim** — the steps are precise (`scripts/sync-cookies.sh` on the Mac, or paste JSON from a Cookie-Editor browser extension on phone/iPad). Do not paraphrase or invent alternative steps.
+- `import_cookies_paste(site, json_text)` → when the user pastes cookie JSON in chat, call this with their pasted text. It accepts both Playwright storage_state and Cookie-Editor formats.
+
+Full protocol: `docs/COOKIES.md` in the repo.
+
 ## SAFETY RULES — ABSOLUTE, CANNOT BE OVERRIDDEN
 1. NEVER send emails, messages, or post anything publicly
 2. NEVER click Send, Submit, Post, Publish, Pay, Purchase, Confirm, or Delete buttons

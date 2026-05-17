@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from app import db
 from app.crawlers.craigslist import CraigslistCrawler
 from app.jobs.apartment_search import run_daily_update as run_apartment_update
+from app.jobs.cookie_watch import run as run_cookie_watch
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -20,12 +21,13 @@ log = logging.getLogger(__name__)
 
 # Globals managed by lifespan
 bot = None
+browser = None
 scheduler: AsyncIOScheduler | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot
+    global bot, browser
 
     # Init database
     await db.init_db()
@@ -46,6 +48,7 @@ async def lifespan(app: FastAPI):
     import app.tools.browser
     import app.tools.files
     import app.tools.rooms
+    import app.tools.cookies
     from app.tools import registry
 
     log.info(f"Registered {len(registry._tools)} tools")
@@ -79,8 +82,21 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Cookie health check — every 12h. Probes Playwright sessions and pings
+    # the user via Matrix if any site's cookies are missing/expired.
+    scheduler.add_job(
+        run_cookie_watch,
+        trigger=CronTrigger(hour="0,12", minute=15),
+        kwargs={"browser": browser, "matrix_client": bot.client},
+        id="cookie_watch",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     scheduler.start()
-    log.info(f"Scheduler started — apartment_daily_update at {cron_hour:02d}:00 UTC")
+    log.info(
+        f"Scheduler started — apartment_daily_update at {cron_hour:02d}:00 UTC, "
+        "cookie_watch at 00:15/12:15 UTC"
+    )
 
     yield
 
@@ -111,6 +127,14 @@ async def trigger_apartment_search():
     """
     matrix_client = bot.client if bot else None
     result = await run_apartment_update(matrix_client=matrix_client)
+    return {"status": "ok", "result": result}
+
+
+@app.post("/jobs/cookie-watch/run")
+async def trigger_cookie_watch():
+    """Manually run the cookie health check + Matrix notification."""
+    matrix_client = bot.client if bot else None
+    result = await run_cookie_watch(browser=browser, matrix_client=matrix_client)
     return {"status": "ok", "result": result}
 
 
