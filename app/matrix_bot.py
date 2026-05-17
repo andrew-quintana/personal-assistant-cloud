@@ -3,7 +3,9 @@ import asyncio
 import logging
 import os
 import re
+from urllib.parse import quote
 
+import httpx
 from nio import AsyncClient, InviteMemberEvent, MatrixRoom, RoomMessageText, LoginResponse
 
 from app.agent import AgentLoop
@@ -50,9 +52,23 @@ class HermesBot:
         await self.client.close()
 
     async def _on_invite(self, room: MatrixRoom, event: InviteMemberEvent):
-        if event.state_key == self.client.user_id:
-            log.info(f"Invited to {room.room_id}, auto-joining")
-            await self.client.join(room.room_id)
+        if event.state_key != self.client.user_id:
+            return
+        log.info(f"Invited to {room.room_id}, auto-joining")
+        # matrix-nio sends an empty body on join; Conduit rejects with
+        # "EOF while parsing a value". Call the join endpoint directly
+        # with an explicit `{}` body so Conduit's JSON parser is happy.
+        url = f"{HOMESERVER}/_matrix/client/v3/rooms/{quote(room.room_id)}/join"
+        headers = {"Authorization": f"Bearer {self.client.access_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as h:
+                r = await h.post(url, json={}, headers=headers)
+            if r.status_code == 200:
+                log.info(f"Joined {room.room_id}")
+            else:
+                log.error(f"Join failed {r.status_code}: {r.text}")
+        except Exception as e:
+            log.error(f"Join exception: {e}", exc_info=True)
 
     async def _on_message(self, room: MatrixRoom, event: RoomMessageText):
         if event.sender == self.client.user_id:
